@@ -166,6 +166,8 @@ def compute_stats(sessions, ai_results):
     
     esc_count = 0
     unres_count = 0
+    esc_ids = []
+    unres_ids = []
     
     for s in sessions:
         is_esc = False
@@ -177,8 +179,12 @@ def compute_stats(sessions, ai_results):
                     is_esc = True
                 if not is_unres and any(k.lower() in cnt_lower for k in unres_kws):
                     is_unres = True
-        if is_esc: esc_count += 1
-        if is_unres: unres_count += 1
+        if is_esc: 
+            esc_count += 1
+            esc_ids.append(s["id"])
+        if is_unres: 
+            unres_count += 1
+            unres_ids.append(s["id"])
 
     # Return Users
     spk_map = defaultdict(list)
@@ -247,6 +253,8 @@ def compute_stats(sessions, ai_results):
         "behavior": {
             "escCount": esc_count,
             "unresCount": unres_count,
+            "escIds": esc_ids,
+            "unresIds": unres_ids,
             "returnUsers": return_users
         },
         "ai": {

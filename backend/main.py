@@ -229,7 +229,9 @@ async def generate_insights(req: Request):
     
     med_dur = ov.get("avgDurMin")
     top_kw = "、".join([k[0] for k in ai.get("topKeywords", [])[:8]])
-    top_topics = "、".join([t[0] for t in ai.get("topTopics", [])[:5]])
+    def resolve_topic(t_str):
+        return "無用戶互動" if t_str == "__NO_USER__" else t_str
+    top_topics = "、".join([resolve_topic(t[0]) for t in ai.get("topTopics", [])[:5]])
     
     total_sess = ov.get("totalSessions", 1)
     pct = int(ov.get("sessWithUser", 0) / max(1, total_sess) * 100)

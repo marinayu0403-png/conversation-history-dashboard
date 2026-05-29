@@ -773,74 +773,11 @@
       const btn = document.getElementById('insightGenBtn');
       if (btn) { btn.disabled = true; btn.textContent = T('reportInsightGenerating'); }
 
-      // Build data summary for Claude
-      const allMsgs = sessions.flatMap(s => s.msgs);
-      const userMsgs = allMsgs.filter(m => isUser(m.spk));
-      const sessWithUser = sessions.filter(s => s.msgs.some(m => isUser(m.spk))).length;
-      const noInteract = sessions.length - sessWithUser;
-      const noInteractPct = ((noInteract / sessions.length) * 100).toFixed(1);
-
-      // Language distribution
-      const langCount = {};
-      sessions.forEach(s => {
-        const u = s.msgs.filter(m => isUser(m.spk));
-        if (!u.length) return;
-        const lc = {};
-        u.forEach(m => { lc[m.lang] = (lc[m.lang] || 0) + 1; });
-        const dom = Object.entries(lc).sort((a, b) => b[1] - a[1])[0][0];
-        langCount[dom] = (langCount[dom] || 0) + 1;
-      });
-      const langSummary = Object.entries(langCount).sort((a, b) => b[1] - a[1])
-        .map(([l, c]) => `${l} ${((c / sessWithUser) * 100).toFixed(0)}%`).join('、');
-
-      // Top keywords
-      const kwCount = {};
-      aiResults.forEach(r => {
-        if (!r.kw) return;
-        r.kw.split('、').forEach(k => { k = k.trim(); if (k) kwCount[k] = (kwCount[k] || 0) + 1; });
-      });
-      const topKw = Object.entries(kwCount).sort((a, b) => b[1] - a[1]).slice(0, 8).map(e => e[0]).join('、');
-
-      // Top topics
-      const topicCount = {};
-      aiResults.forEach(r => { const t = resolveNoUser(r.topic, 'zh'); topicCount[t] = (topicCount[t] || 0) + 1; });
-      const topTopics = Object.entries(topicCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(e => e[0]).join('、');
-
-      // Duration median
-      const sessWithTs = sessions.filter(s => s.msgs.filter(m => m.ts).length >= 2);
-      const durs = sessWithTs.map(s => {
-        const ts = s.msgs.map(m => m.ts).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
-        return (Math.max(...ts) - Math.min(...ts)) / 60000;
-      }).filter(d => d < 30);
-      const medDur = durs.length ? (() => {
-        const sorted = [...durs].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 ? sorted[mid].toFixed(1) : ((sorted[mid - 1] + sorted[mid]) / 2).toFixed(1);
-      })() : null;
-
-      const prompt = `你是一位 AI 客服數據分析師。以下是一份 AI Agent 對話數據摘要，請用繁體中文生成簡短的分析洞察。
-
-數據摘要：
-- 總 Sessions：${sessions.length}，有用戶互動：${sessWithUser}（${((sessWithUser / sessions.length) * 100).toFixed(0)}%）
-- 無互動率：${noInteractPct}%（${noInteract} sessions）
-- 主要語言分布：${langSummary}
-- 對話時長中位數：${medDur ? medDur + ' 分鐘' : '無法計算'}
-- 熱門關鍵詞：${topKw}
-- 熱門主題：${topTopics}
-
-請以以下 JSON 格式回覆，每個區塊 1-2 點，每點一句話，不超過 40 字：
-{
-  "highlights": "亮點內容（用換行分隔多點）",
-  "warnings": "需注意內容（用換行分隔多點）",
-  "suggestions": "建議內容（用換行分隔多點）"
-}
-
-只回傳 JSON，不要加任何說明。`;
-
       try {
         let apiKey = localStorage.getItem('claude_api_key');
         if (!apiKey) {
-          apiKey = prompt('請輸入您的 Anthropic Claude API Key：\n(僅存在本地端 localStorage，發送 API 請求使用)');
+          // Use window.prompt to avoid variable shadowing
+          apiKey = window.prompt('請輸入您的 Anthropic Claude API Key：\\n(僅存在本地端 localStorage，發送 API 請求使用)');
           if (!apiKey) {
             if (btn) { btn.disabled = false; btn.textContent = T('reportInsightBtn'); }
             return;
@@ -848,29 +785,25 @@
           localStorage.setItem('claude_api_key', apiKey);
         }
 
-        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        const resp = await fetch(`${backendUrl}/api/insights`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: 'claude-3-5-sonnet-20241022',
-            max_tokens: 600,
-            messages: [{ role: 'user', content: prompt }]
+            apiKey: apiKey,
+            stats: statsData
           })
         });
 
         if (!resp.ok) {
           if (resp.status === 401) localStorage.removeItem('claude_api_key');
           const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData.error?.message || 'API 請求失敗 (' + resp.status + ')');
+          throw new Error(errData.error || 'API 請求失敗 (' + resp.status + ')');
         }
 
         const data = await resp.json();
-        const text = data.content[0].text.trim().replace(/```json|```/g, '').trim();
+        const text = data.text;
         const result = JSON.parse(text);
 
         reportInsightText = {
@@ -1586,14 +1519,10 @@
         .slice(0, 10);
 
       // ── Escalation & unresolved detection ──
-      const escKws = T('escalationKeywords');
-      const unresKws = T('unresolvedKeywords');
-      const escalatedSessions = sessions.filter(s =>
-        s.msgs.some(m => isAgent(m.spk) && escKws.some(kw => m.cnt.toLowerCase().includes(kw.toLowerCase())))
-      );
-      const unresolvedSessions = sessions.filter(s =>
-        s.msgs.some(m => isAgent(m.spk) && unresKws.some(kw => m.cnt.toLowerCase().includes(kw.toLowerCase())))
-      );
+      if (!statsData) return;
+      const bs = statsData.behavior;
+      const escalatedSessions = bs.escIds.map(id => sessions.find(s => s.id === id)).filter(Boolean);
+      const unresolvedSessions = bs.unresIds.map(id => sessions.find(s => s.id === id)).filter(Boolean);
 
       const hasSpkId = allMsgs.some(m => m.spkId);
 
@@ -1896,30 +1825,24 @@
     function generatePDF() {
       const s = PDF_S[pdfLang];
 
-      // Gather data
-      const allMsgsAll = sessions.flatMap(sx => sx.msgs);
-      const userMsgsAll = allMsgsAll.filter(m => isUser(m.spk));
-      const agentMsgsAll = allMsgsAll.filter(m => !isUser(m.spk));
-      const sessWithUser = sessions.filter(sx => sx.msgs.some(m => isUser(m.spk))).length;
-      const avgMsgs = sessions.length ? (allMsgsAll.length / sessions.length).toFixed(1) : 0;
-      const spkIds = new Set(allMsgsAll.map(m => m.spkId).filter(Boolean));
+      if (!statsData) { alert('請先載入資料'); return; }
+      const ov = statsData.overview;
+      const ls = statsData.language;
+      const bs = statsData.behavior;
+      const ts = statsData.time;
+      const ai = statsData.ai;
 
-      const allTs = allMsgsAll.map(m => m.ts).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
-      const tsMin = allTs.length ? new Date(Math.min(...allTs)) : null;
-      const tsMax = allTs.length ? new Date(Math.max(...allTs)) : null;
+      // Gather data
+      const sessWithUser = ov.sessWithUser;
+      const avgMsgs = ov.avgMsgs;
+      const uniqueUsers = ov.uniqueUsers;
+
+      const tsMin = ov.tsMin ? new Date(ov.tsMin) : null;
+      const tsMax = ov.tsMax ? new Date(ov.tsMax) : null;
       const fmtD = d => d ? d.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—';
 
       // Language distribution
-      const langCount = {};
-      sessions.forEach(sx => {
-        const umsgs = sx.msgs.filter(m => isUser(m.spk) && m.lang);
-        if (!umsgs.length) return;
-        const lc = {};
-        umsgs.forEach(m => { lc[m.lang] = (lc[m.lang] || 0) + 1; });
-        const dom = Object.entries(lc).sort((a, b) => b[1] - a[1])[0][0];
-        langCount[dom] = (langCount[dom] || 0) + 1;
-      });
-      const langEntries = Object.entries(langCount).sort((a, b) => b[1] - a[1]);
+      const langEntries = Object.entries(ls.sessLangCount).filter(e => e[0] !== '無用戶互動').sort((a, b) => b[1] - a[1]);
 
       // Topic distribution
       const topicCount = {};
@@ -1927,37 +1850,18 @@
       const topTopics = Object.entries(topicCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
       // Keyword distribution
-      const kwCount = {};
-      aiResults.forEach(r => {
-        if (!r.kw) return;
-        r.kw.split('、').forEach(k => { k = k.trim(); if (k) kwCount[k] = (kwCount[k] || 0) + 1; });
-      });
-      const topKw = Object.entries(kwCount).sort((a, b) => b[1] - a[1]).slice(0, 20);
+      const topKw = ai.topKeywords.slice(0, 20);
 
       // Build HTML report
       const now = new Date().toLocaleString();
 
       // Extra stats for PDF
-      const noInteractCount = sessions.filter(sx => !sx.msgs.some(m => isUser(m.spk))).length;
-      const noInteractPct = ((noInteractCount / sessions.length) * 100).toFixed(1);
-      const sessWithTs = sessions.filter(sx => sx.msgs.filter(m => m.ts).length >= 2);
-      const avgDurMin = (() => {
-        if (!sessWithTs.length) return null;
-        const durs = sessWithTs.map(sx => {
-          const ts = sx.msgs.map(m => m.ts).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
-          return (Math.max(...ts) - Math.min(...ts)) / 60000;
-        }).filter(d => d < 120); // 排除超過 120 分鐘的異常值（用戶長時間未關閉視窗）
-        if (!durs.length) return null;
-        // 用中位數而非平均，更能反映典型對話時長
-        const sorted = [...durs].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 ? sorted[mid].toFixed(1) : ((sorted[mid - 1] + sorted[mid]) / 2).toFixed(1);
-      })();
-      const avgReplySec = null;
-      const escKws = ['請致電', '請聯繫', 'contact us', 'please call', 'お電話'];
-      const unresKws = ['無法提供', '不支援', 'cannot', 'not available', '申し訳'];
-      const escCount = sessions.filter(sx => sx.msgs.some(m => isAgent(m.spk) && escKws.some(k => m.cnt.toLowerCase().includes(k.toLowerCase())))).length;
-      const unresCount = sessions.filter(sx => sx.msgs.some(m => isAgent(m.spk) && unresKws.some(k => m.cnt.toLowerCase().includes(k.toLowerCase())))).length;
+      const noInteractCount = ov.noInteractCount;
+      const noInteractPct = ov.noInteractPct;
+      const avgDurMin = ov.avgDurMin;
+      const avgReplySec = ts.avgReplySpeed;
+      const escCount = bs.escCount;
+      const unresCount = bs.unresCount;
 
       const reportHTML = `
 <div style="font-family:'Hiragino Sans','Noto Sans CJK JP','Microsoft JhengHei','PingFang TC',sans-serif;color:#1e293b;background:#fff;max-width:794px;margin:0 auto;padding:10px 0;">
@@ -1987,14 +1891,14 @@
     ${sectionHTML(s.s1)}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
       ${statCardHTML(s.total_sessions, sessions.length, '', '#3b82f6')}
-      ${statCardHTML(s.total_messages, allMsgsAll.length.toLocaleString(), '', '#22c55e')}
+      ${statCardHTML(s.total_messages, ov.totalMsgs.toLocaleString(), '', '#22c55e')}
       ${statCardHTML(s.sess_with_user, sessWithUser, '/ ' + sessions.length + ' Sessions', '#a855f7')}
       ${statCardHTML(s.avg_msg, avgMsgs, '', '#f59e0b')}
     </div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
-      ${statCardHTML(s.user_msg, userMsgsAll.length, '', '#06b6d4')}
-      ${statCardHTML(s.agent_msg, agentMsgsAll.length, '', '#3b82f6')}
-      ${spkIds.size > 0 ? statCardHTML(s.unique_users, spkIds.size, '', '#22c55e') : statCardHTML('—', '—', '', '#94a3b8')}
+      ${statCardHTML(s.user_msg, ov.userMsgs, '', '#06b6d4')}
+      ${statCardHTML(s.agent_msg, ov.agentMsgs, '', '#3b82f6')}
+      ${uniqueUsers > 0 ? statCardHTML(s.unique_users, uniqueUsers, '', '#22c55e') : statCardHTML('—', '—', '', '#94a3b8')}
       ${statCardHTML(s.no_interact, noInteractPct + '%', noInteractCount + ' sessions', '#ef4444')}
     </div>
     ${(avgDurMin !== null || avgReplySec !== null) ? `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
