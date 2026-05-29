@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Avatar 對話分析儀表板</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <div class="app">
+    <!-- ── Sidebar ── -->
+    <aside class="sidebar">
+      <div class="logo">
+        <h2>📊 <span id="ui-appTitle">對話分析</span></h2>
+        <p id="dataStatus" id="ui-noData">尚未載入資料</p>
+        <p style="font-size:10px;color:var(--text3);margin-top:6px;letter-spacing:0.03em;">Made with ❤️ by MKT Marina
+        </p>
+      </div>
+      <div style="padding:8px 14px 10px;border-bottom:1px solid var(--border);">
+        <div style="display:flex;gap:4px;">
+          <button onclick="setLang('zh')" id="langBtn-zh"
+            style="flex:1;border:none;border-radius:6px;background:var(--blue);color:#fff;font-size:11px;font-weight:700;padding:5px 0;cursor:pointer;">中文</button>
+          <button onclick="setLang('en')" id="langBtn-en"
+            style="flex:1;border:none;border-radius:6px;background:var(--surface2);color:var(--text2);font-size:11px;font-weight:700;padding:5px 0;cursor:pointer;">EN</button>
+          <button onclick="setLang('ja')" id="langBtn-ja"
+            style="flex:1;border:none;border-radius:6px;background:var(--surface2);color:var(--text2);font-size:11px;font-weight:700;padding:5px 0;cursor:pointer;">日本語</button>
+        </div>
+      </div>
+      <nav class="nav">
+        <div class="nav-item active" onclick="switchPage('overview')" id="nav-overview">
+          <span class="icon">🏠</span><span id="nav-overview-label">總覽</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('language')" id="nav-language">
+          <span class="icon">🌐</span><span id="nav-language-label">語言分析</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('topics')" id="nav-topics">
+          <span class="icon">🤖</span><span id="nav-topics-label">主題分析</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('time')" id="nav-time">
+          <span class="icon">⏱</span><span id="nav-time-label">時間分析</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('behavior')" id="nav-behavior">
+          <span class="icon">👤</span><span id="nav-behavior-label">用戶行為</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('sessions')" id="nav-sessions">
+          <span class="icon">💬</span><span id="nav-sessions-label">對話資料</span>
+        </div>
+        <div class="nav-item" onclick="switchPage('report')" id="nav-report"
+          style="margin-top:auto;border-top:1px solid var(--border);padding-top:12px;">
+          <span class="icon">📋</span><span id="nav-report-label">報告</span>
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+          <span>⬆</span><span id="upload-btn-label">上傳 CSV</span>
+        </button>
+        <input type="file" id="fileInput" accept=".csv" onchange="handleFileSelect(event)">
+      </div>
+    </aside>
+
+    <!-- ── Main ── -->
+    <div class="main">
+
+      <!-- ── PAGE: Overview ── -->
+      <div id="page-overview" class="page active">
+        <div class="page-header">
+          <h1 id="page-overview-h1">數據總覽</h1>
+          <p id="overviewSub">請先上傳 CSV 檔案以載入資料</p>
+        </div>
+        <div class="content">
+
+          <!-- Upload drop zone (shown when no data) -->
+          <div id="uploadArea">
+            <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+              ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+              <div class="drop-icon" id="dropIcon">📂</div>
+              <div class="drop-title" id="dropTitle">拖曳或點擊上傳 CSV</div>
+              <div class="drop-sub" id="dropSub">支援 UTF-8、UTF-8 BOM 編碼</div>
+              <div class="drop-hint">需包含 session_id、speaker、content 欄位</div>
+              <div class="file-info" id="dropFileInfo" style="display:none"></div>
+            </div>
+
+            <!-- Column mapping -->
+            <div id="colConfig" style="display:none">
+              <p style="font-size:12px;color:var(--text3);margin:14px 0 0;">確認欄位對應（已自動偵測）：</p>
+              <div class="col-grid">
+                <div class="col-group">
+                  <label>Session ID 欄位</label>
+                  <select id="colSessionId"></select>
+                </div>
+                <div class="col-group">
+                  <label>說話者 (Speaker)</label>
+                  <select id="colSpeaker"></select>
+                </div>
+                <div class="col-group">
+                  <label>訊息內容 (Content)</label>
+                  <select id="colContent"></select>
+                </div>
+
+                <div class="col-group">
+                  <label>用戶 ID (Speaker ID) <span style="color:var(--amber)">選填</span></label>
+                  <select id="colSpeakerId">
+                    <option value="-1">— 不使用此欄位 —</option>
+                  </select>
+                  <p class="optional-hint">有此欄位才能計算不重複用戶數</p>
+                </div>
+                <div class="col-group">
+                  <label id="ui-colLen">訊息字數 (Length) <span style="color:var(--amber)">選填</span></label>
+                  <select id="colLength">
+                    <option value="-1">— 不使用此欄位 —</option>
+                  </select>
+                  <p class="optional-hint" id="ui-hintLen">有此欄位才能做分語言字數分析</p>
+                </div>
+              </div>
+              <!-- Exclude keywords filter -->
+              <div
+                style="margin-top:16px;background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;">
+                <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px;" id="ui-filterTitle">
+                  排除測試 Session</div>
+                <div style="font-size:11px;color:var(--text3);margin-bottom:10px;" id="ui-filterHint">USER 訊息包含以下關鍵字的
+                  session 將被整個排除（不分大小寫）</div>
+                <!-- Tag display -->
+                <div id="filterTags" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:28px;">
+                </div>
+                <!-- Input -->
+                <input type="text" id="filterInput" placeholder="輸入關鍵字後按 Enter"
+                  style="background:var(--surface2);border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:6px 10px;font-size:12px;width:100%;outline:none;"
+                  onkeydown="handleFilterKey(event)">
+                <!-- Preview -->
+                <div id="filterPreview" style="font-size:11px;color:var(--text3);margin-top:8px;"></div>
+              </div>
+
+              <div style="margin-top:14px; display:flex; gap:10px;">
+                <button class="btn btn-blue" onclick="confirmLoad()">✓ 確認載入</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analysis auto-running banner -->
+          <div id="autoBanner"
+            style="display:none; background:linear-gradient(135deg,#1a2a4a,#111a35); border:1px solid #2d4a8a; border-radius:10px; padding:12px 18px; margin-bottom:16px; display:none; align-items:center; gap:12px;">
+            <div class="spinner"></div>
+            <div>
+              <div style="font-size:13px;font-weight:600;">🤖 AI 主題分析進行中...</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px;">完成後可至「主題分析」頁面查看結果並下載 CSV</div>
+            </div>
+            <div style="margin-left:auto;font-size:12px;color:var(--text3)" id="bannerStatus"></div>
+          </div>
+
+          <!-- Stats (hidden until data loaded) -->
+          <div id="statsArea" style="display:none">
+            <div class="stat-grid" id="statGrid"></div>
+
+            <div class="chart-grid">
+              <div class="chart-card">
+                <div class="chart-title">Session 訊息數分布</div>
+                <div class="chart-sub">各 session 的對話輪數分布</div>
+                <div class="chart-wrap"><canvas id="msgDistChart"></canvas></div>
+              </div>
+              <div class="chart-card">
+                <div class="chart-title">說話者佔比</div>
+                <div class="chart-sub">AGENT vs USER 訊息數量</div>
+                <div class="chart-wrap short"><canvas id="speakerChart"></canvas></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── PAGE: Language ── -->
+      <div id="page-language" class="page">
+        <div class="page-header">
+          <h1 id="page-lang-h1">語言分析</h1>
+          <p id="page-lang-p">用戶使用語言分布與互動模式</p>
+        </div>
+        <div class="content">
+          <div id="langContent">
+            <div class="empty-state">
+              <div class="eicon">🌐</div>
+              <p>請先載入資料</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: Topics ── -->
+      <div id="page-topics" class="page">
+        <div class="page-header">
+          <h1 id="page-topics-h1">主題分析</h1>
+          <p id="page-topics-p">由 AI 分析每個 session 的對話主題與關鍵詞</p>
+        </div>
+        <div class="content">
+
+          <div class="ai-banner">
+            <div class="icon">🤖</div>
+            <div class="ai-banner-text">
+              <h3 id="ai-banner-title">Claude AI 主題分析</h3>
+              <p id="ai-banner-sub">逐一分析每個 session 的核心主題與關鍵詞，完成後可下載完整 CSV</p>
+            </div>
+          </div>
+
+          <div class="ai-controls">
+            <button class="btn btn-green" id="dlBtn" onclick="downloadCSV()"><span id="ui-dlBtn">↓ Session 明細
+                CSV</span></button>
+            <button class="btn" id="dlPdfBtn" onclick="openPdfModal()"
+              style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;"><span
+                id="ui-dlPdfBtn">📄 下載 PDF 報告</span></button>
+            <span id="aiStatus" style="font-size:12px;color:var(--green);font-weight:600;"></span>
+          </div>
+
+
+
+          <!-- Analysis status banner -->
+          <div id="analysisStatusBanner"
+            style="display:none;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:13px;color:var(--text2);display:flex;align-items:center;gap:10px;">
+            <span id="analysisBannerIcon">✓</span>
+            <span id="analysisBannerMsg"></span>
+          </div>
+          <div id="errBox" class="err-box" style="display:none"></div>
+
+          <!-- Topic summary (after AI done) -->
+          <div id="topicSummary" style="display:none">
+            <p class="section-h">主題分布概覽</p>
+            <!-- Analysis status indicator -->
+            <div id="topicAnalyzingMsg" style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">
+              ⏳ <span id="topicAnalyzingText"></span>
+            </div>
+            <div id="topicChartArea" style="display:none;">
+              <div class="chart-grid">
+                <div class="chart-card full">
+                  <div class="chart-title" id="ui-kwTitle">熱門關鍵詞</div>
+                  <div class="chart-sub" id="ui-kwSub">各關鍵詞出現次數（前 20）</div>
+                  <!-- Word Cloud -->
+                  <div id="wordCloudContainer" style="
+            min-height:130px;
+            padding:18px 16px 12px;
+            text-align:center;
+            line-height:2;
+            background:var(--surface2);
+            border-radius:10px;
+            border:1px solid var(--border2);
+            margin-bottom:16px;
+          "></div>
+                  <!-- Bar Chart -->
+                  <div class="chart-wrap tall"><canvas id="keywordChart"></canvas></div>
+                </div>
+              </div>
+            </div>
+          </div><!-- /topicChartArea -->
+
+          <p class="section-h" id="sessionTableLabel" style="display:none">各 Session 分析結果</p>
+          <div id="topicTableWrap" style="display:none">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+              <input type="text" id="topicSearch"
+                style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 12px;font-size:12px;width:210px;"
+                oninput="renderTopicTable()">
+              <select id="topicLangFilter" onchange="renderTopicTable()"
+                style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;">
+              </select>
+              <select id="topicMsgFilter" onchange="renderTopicTable()"
+                style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;">
+              </select>
+              <input type="date" id="topicDateFrom" onchange="renderTopicTable()" title="From"
+                style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;color-scheme:dark;">
+              <span style="color:var(--text3);font-size:12px;">～</span>
+              <input type="date" id="topicDateTo" onchange="renderTopicTable()" title="To"
+                style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;color-scheme:dark;">
+              <span id="topicCountBadge" style="font-size:12px;color:var(--text3);"></span>
+              <button onclick="clearTopicFilters()"
+                style="background:none;border:1px solid var(--border2);border-radius:6px;color:var(--text3);padding:6px 12px;font-size:11px;cursor:pointer;"
+                id="ui-btnClear1">✕ 清除篩選</button>
+            </div>
+            <div class="table-wrap">
+              <table style="table-layout:fixed;width:100%;">
+                <colgroup>
+                  <col style="width:14%">
+                  <col style="width:30%">
+                  <col style="width:8%">
+                  <col style="width:12%">
+                  <col style="width:36%">
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style="cursor:pointer" onclick="topicSort('id')">Session ID <span id="tsort-id"></span></th>
+                    <th style="cursor:pointer" onclick="topicSort('topic')" id="ui-thTopic">主題 <span
+                        id="tsort-topic"></span></th>
+                    <th style="cursor:pointer" onclick="topicSort('n')" id="ui-thMsgCount">訊息數 <span
+                        id="tsort-n">↓</span></th>
+                    <th style="cursor:pointer" onclick="topicSort('ts')" id="ui-thTime">時間 <span id="tsort-ts"></span>
+                    </th>
+                    <th id="ui-thKeywords">關鍵詞</th>
+                  </tr>
+                </thead>
+                <tbody id="topicTbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="empty-state" id="topicEmpty" style="display:none">
+            <div class="eicon">🤖</div>
+            <p id="topicEmptyMsg">載入 CSV 後，點擊「開始分析」</p>
+            <small id="topicEmptyHint">分析完成後可在此查看結果，並下載 CSV</small>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── PAGE: Sessions ── -->
+      <div id="page-sessions" class="page">
+        <div class="page-header">
+          <h1 id="page-sessions-h1">對話資料</h1>
+          <p id="page-sessions-p">瀏覽所有 session 的完整對話記錄</p>
+        </div>
+        <div class="content">
+          <div id="sessionsContent">
+            <div class="empty-state">
+              <div class="eicon">💬</div>
+              <p>請先載入資料</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ── PAGE: Time Analysis ── -->
+      <div id="page-time" class="page">
+        <div class="page-header">
+          <h1 id="page-time-h1">時間分析</h1>
+          <p id="page-time-p">對話時段、時長與 Agent 回覆速度</p>
+        </div>
+        <div class="content">
+          <div id="timeContent">
+            <div class="empty-state">
+              <div class="eicon">⏱</div>
+              <p id="ui-noDataTime">請先載入資料</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── PAGE: User Behavior ── -->
+      <div id="page-behavior" class="page">
+        <div class="page-header">
+          <h1 id="page-behavior-h1">用戶行為</h1>
+          <p id="page-behavior-p">無互動率、回訪用戶與高意圖用戶分析</p>
+        </div>
+        <div class="content">
+          <div id="behaviorContent">
+            <div class="empty-state">
+              <div class="eicon">👤</div>
+              <p id="ui-noDataBehavior">請先載入資料</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ── PAGE: Report ── -->
+      <div id="page-report" class="page">
+        <div class="page-header">
+          <h1 id="page-report-h1">報告輸出</h1>
+          <p id="page-report-p">AI 洞察、編輯與下載</p>
+        </div>
+        <div class="content">
+          <div id="reportContent">
+            <div class="empty-state">
+              <div class="eicon">📋</div>
+              <p id="ui-noDataReport">請先上傳 CSV 並完成分析</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main -->
+  </div><!-- /app -->
+
+  <!-- ── Modal ── -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3 id="modalTitle">對話詳情</h3>
+          <p id="modalMeta"></p>
+        </div>
+        <button class="modal-close" onclick="closeModalDirect()">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+
+  <!-- ── PDF Language Selector Modal ── -->
+  <div id="pdfModal"
+    style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);align-items:center;justify-content:center;">
+    <div
+      style="background:#161b28;border:1px solid #252d40;border-radius:16px;padding:32px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.5);">
+      <div style="font-size:16px;font-weight:700;margin-bottom:6px;">📄 下載 PDF 報告</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:20px;">選擇報告的介面語言（分析內容不翻譯）</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px;" id="pdfLangPicker">
+        <label onclick="selectPdfLang('zh')" id="pdfLangZh"
+          style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:2px solid #3b82f6;border-radius:10px;cursor:pointer;background:#1e2535;">
+          <span style="font-size:20px;">🇹🇼</span>
+          <div>
+            <div style="font-size:13px;font-weight:600;">中文</div>
+            <div style="font-size:11px;color:#64748b;">Traditional Chinese</div>
+          </div>
+          <span class="lang-check" id="chkZh" style="margin-left:auto;color:#3b82f6;">✓</span>
+        </label>
+        <label onclick="selectPdfLang('en')" id="pdfLangEn"
+          style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:2px solid #252d40;border-radius:10px;cursor:pointer;background:#111520;">
+          <span style="font-size:20px;">🇺🇸</span>
+          <div>
+            <div style="font-size:13px;font-weight:600;">English</div>
+            <div style="font-size:11px;color:#64748b;">English</div>
+          </div>
+          <span class="lang-check" id="chkEn" style="margin-left:auto;color:#3b82f6;display:none;">✓</span>
+        </label>
+        <label onclick="selectPdfLang('ja')" id="pdfLangJa"
+          style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:2px solid #252d40;border-radius:10px;cursor:pointer;background:#111520;">
+          <span style="font-size:20px;">🇯🇵</span>
+          <div>
+            <div style="font-size:13px;font-weight:600;">日本語</div>
+            <div style="font-size:11px;color:#64748b;">Japanese</div>
+          </div>
+          <span class="lang-check" id="chkJa" style="margin-left:auto;color:#3b82f6;display:none;">✓</span>
+        </label>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="closePdfModal()"
+          style="flex:1;padding:10px;background:#1e2535;border:1px solid #252d40;border-radius:8px;color:#94a3b8;cursor:pointer;font-size:13px;"
+          id="ui-btnCancel">取消</button>
+        <button onclick="generatePDF()"
+          style="flex:2;padding:10px;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;"
+          id="ui-btnGenerate">產生並下載</button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <link rel="stylesheet" href="style.css">
+  <script src="script.js"></script>
+</body>
+
+</html>
