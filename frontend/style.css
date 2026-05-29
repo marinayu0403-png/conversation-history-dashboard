@@ -910,27 +910,3 @@
         grid-template-columns: 1fr;
       }
     }
-      * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: 'Hiragino Sans','Noto Sans CJK JP','Microsoft JhengHei','PingFang TC',sans-serif;
-             color:#1e293b; background:#f1f5f9; }
-      .report-wrap { max-width: 794px; margin: 0 auto; background:#fff;
-                     padding: 28px 32px; box-shadow: 0 4px 24px rgba(0,0,0,.12); }
-      .print-bar { position: sticky; top: 0; z-index: 99;
-                   background: #1e293b; color: #fff; padding: 10px 24px;
-                   display: flex; align-items: center; gap: 14px;
-                   font-family: system-ui, sans-serif; font-size: 13px; }
-      .print-bar button {
-        padding: 7px 18px; border: none; border-radius: 6px; cursor: pointer;
-        font-size: 13px; font-weight: 600; }
-      .print-btn { background: #6366f1; color: #fff; }
-      .close-btn { background: #374151; color: #e5e7eb; }
-      .print-hint { color: #94a3b8; font-size: 11px; }
-      @media print {
-        .print-bar { display: none !important; }
-        body { background: #fff; }
-        .report-wrap { box-shadow: none; padding: 0; }
-        @page { size: A4 portrait; margin: 18mm 18mm 20mm 18mm; }
-        .pr-page { page-break-after: always; }
-        .pr-page:last-child { page-break-after: avoid; }
-        .no-break { page-break-inside: avoid; }
-      }
