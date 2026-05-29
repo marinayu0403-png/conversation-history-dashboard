@@ -1206,6 +1206,7 @@
     </table>
     </div>
   `;
+      populateSessFilters();
       renderSessTable();
     }
 
@@ -1228,7 +1229,6 @@
     }
 
     function renderSessTable() {
-      populateSessFilters();
       const q = (document.getElementById('sessSearch')?.value || '').toLowerCase();
       const langF = document.getElementById('sessLangFilter')?.value || '';
       const minMsgs = parseInt(document.getElementById('sessMsgFilter')?.value || '0');
