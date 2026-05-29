@@ -90,6 +90,8 @@ def extract_keywords(texts, top_n=5):
     sorted_words = sorted(cnt.items(), key=lambda x: x[1], reverse=True)
     return [w[0] for w in sorted_words[:top_n]]
 
+from backend.stats_engine import compute_stats
+
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile = File(...),
@@ -201,20 +203,57 @@ async def analyze(
                 "full_convo": full_convo
             })
             
-    return {"sessions": sessions, "aiResults": ai_results}
+    stats = compute_stats(sessions, ai_results)
+    return {"sessions": sessions, "aiResults": ai_results, "stats": stats}
 
 from anthropic import Anthropic
 @app.post("/api/insights")
 async def generate_insights(req: Request):
     data = await req.json()
     apiKey = data.get("apiKey")
-    prompt = data.get("prompt")
+    stats = data.get("stats", {})
     
     if not apiKey:
         return JSONResponse(status_code=401, content={"error": "Missing API Key"})
         
-    client = Anthropic(api_key=apiKey)
+    ov = stats.get("overview", {})
+    ai = stats.get("ai", {})
+    lang_dict = stats.get("language", {}).get("sessLangCount", {})
     
+    sess_with_user = ov.get("sessWithUser", 1)
+    if sess_with_user == 0: sess_with_user = 1
+    
+    # Sort language entries by count descending
+    sorted_langs = sorted(lang_dict.items(), key=lambda x: x[1], reverse=True)
+    lang_str = "、".join([f"{k} {int(v/sess_with_user*100)}%" for k, v in sorted_langs if k != "無用戶互動"])
+    
+    med_dur = ov.get("avgDurMin")
+    top_kw = "、".join([k[0] for k in ai.get("topKeywords", [])[:8]])
+    top_topics = "、".join([t[0] for t in ai.get("topTopics", [])[:5]])
+    
+    total_sess = ov.get("totalSessions", 1)
+    pct = int(ov.get("sessWithUser", 0) / max(1, total_sess) * 100)
+    
+    prompt = f"""你是一位 AI 客服數據分析師。以下是一份 AI Agent 對話數據摘要，請用繁體中文生成簡短的分析洞察。
+
+數據摘要：
+- 總 Sessions：{total_sess}，有用戶互動：{ov.get('sessWithUser', 0)}（{pct}%）
+- 無互動率：{ov.get('noInteractPct', 0)}%（{ov.get('noInteractCount', 0)} sessions）
+- 主要語言分布：{lang_str}
+- 對話時長中位數：{med_dur if med_dur is not None else '無法計算'} 分鐘
+- 熱門關鍵詞：{top_kw}
+- 熱門主題：{top_topics}
+
+請以以下 JSON 格式回覆，每個區塊 1-2 點，每點一句話，不超過 40 字：
+{{
+  "highlights": "亮點內容（用換行分隔多點）",
+  "warnings": "需注意內容（用換行分隔多點）",
+  "suggestions": "建議內容（用換行分隔多點）"
+}}
+
+只回傳 JSON，不要加任何說明。"""
+
+    client = Anthropic(api_key=apiKey)
     try:
         response = client.messages.create(
             model="claude-3-5-sonnet-20241022",

@@ -89,27 +89,27 @@
               <p style="font-size:12px;color:var(--text3);margin:14px 0 0;">確認欄位對應（已自動偵測）：</p>
               <div class="col-grid">
                 <div class="col-group">
-                  <label>Session ID 欄位</label>
+                  <label for="colSessionId">Session ID 欄位</label>
                   <select id="colSessionId"></select>
                 </div>
                 <div class="col-group">
-                  <label>說話者 (Speaker)</label>
+                  <label for="colSpeaker">說話者 (Speaker)</label>
                   <select id="colSpeaker"></select>
                 </div>
                 <div class="col-group">
-                  <label>訊息內容 (Content)</label>
+                  <label for="colContent">訊息內容 (Content)</label>
                   <select id="colContent"></select>
                 </div>
 
                 <div class="col-group">
-                  <label>用戶 ID (Speaker ID) <span style="color:var(--amber)">選填</span></label>
+                  <label for="colSpeakerId">用戶 ID (Speaker ID) <span style="color:var(--amber)">選填</span></label>
                   <select id="colSpeakerId">
                     <option value="-1">— 不使用此欄位 —</option>
                   </select>
                   <p class="optional-hint">有此欄位才能計算不重複用戶數</p>
                 </div>
                 <div class="col-group">
-                  <label id="ui-colLen">訊息字數 (Length) <span style="color:var(--amber)">選填</span></label>
+                  <label for="colLength" id="ui-colLen">訊息字數 (Length) <span style="color:var(--amber)">選填</span></label>
                   <select id="colLength">
                     <option value="-1">— 不使用此欄位 —</option>
                   </select>

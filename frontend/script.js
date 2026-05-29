@@ -386,7 +386,8 @@
     //  STATE
     // ════════════════════════════════════════════
     let sessions = [];       // [{id, n, msgs:[{spk,spkId,cnt,lang}], full_convo, convo_preview}]
-    let aiResults = [];      // [{id, n, topic, kw, full_convo}]
+    let aiResults = [];
+    let statsData = null;      // [{id, n, topic, kw, full_convo}]
     let rawRows = [], csvHeaders = [];
     let chartInstances = {};
     let aborted = false;
@@ -631,6 +632,7 @@
         const data = await res.json();
         sessions = data.sessions;
         aiResults = data.aiResults;
+        statsData = data.stats;
 
         const withUser = aiResults.filter(r => r.kw).length;
         const doneMsg = T('analysisDone', aiResults.length);
@@ -980,79 +982,41 @@
     }
 
     function renderOverview() {
-      const allMsgs = sessions.flatMap(s => s.msgs);
-      const agentMsgs = allMsgs.filter(m => isAgent(m.spk));
-      const userMsgs = allMsgs.filter(m => isUser(m.spk));
-      const uniqueUsers = new Set(allMsgs.filter(m => isUser(m.spk) && m.spkId).map(m => m.spkId)).size;
-      const sessWithUser = sessions.filter(s => s.msgs.some(m => isUser(m.spk))).length;
-      const avgMsgs = (allMsgs.length / sessions.length).toFixed(1);
-
-      // Date range from timestamps
-      const allTs = allMsgs.map(m => m.ts).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
-      const tsMin = allTs.length ? new Date(Math.min(...allTs)) : null;
-      const tsMax = allTs.length ? new Date(Math.max(...allTs)) : null;
+      if (!statsData) return;
+      const ov = statsData.overview;
+      
       const fmtDate = d => {
         if (!d) return '';
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
+        const date = new Date(d);
+        if (isNaN(date)) return '';
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
         return y + '/' + m + '/' + dd;
       };
 
-      // ── Extra stats from timestamps ──
-      const sessWithTs = sessions.filter(s => s.msgs.filter(m => m.ts).length >= 2);
-      // Duration: median, exclude sessions > 30 min (likely left window open)
-      const _durAll = sessWithTs.map(s => {
-        const ts = s.msgs.map(m => m.ts).filter(Boolean).map(t => new Date(t)).filter(d => !isNaN(d));
-        return { id: s.id, min: (Math.max(...ts) - Math.min(...ts)) / 60000 };
-      });
-      const _durOutliers = _durAll.filter(d => d.min >= 30);
-      const _durNormal = _durAll.filter(d => d.min < 30);
-      const avgDurMin = (() => {
-        if (!_durNormal.length) return null;
-        const sorted = _durNormal.map(d => d.min).sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 ? sorted[mid].toFixed(1) : ((sorted[mid - 1] + sorted[mid]) / 2).toFixed(1);
-      })();
-      const durOutlierCount = _durOutliers.length;
-      const durOutlierIds = _durOutliers.sort((a, b) => b.min - a.min).slice(0, 10).map(d => d.id);
-
-      const noInteractCount = sessions.filter(s => !s.msgs.some(m => isUser(m.spk))).length;
-      const noInteractPct = ((noInteractCount / sessions.length) * 100).toFixed(1);
-
       document.getElementById('statGrid').innerHTML = `
-    <div class="stat-card blue"><div class="stat-label">${T('statSessions')}</div><div class="stat-value">${sessions.length}</div><div class="stat-sub">${T('statSessionsSub')}</div></div>
-    <div class="stat-card green"><div class="stat-label">${T('statMsgs')}</div><div class="stat-value">${allMsgs.length.toLocaleString()}</div><div class="stat-sub">AGENT + USER</div></div>
-    <div class="stat-card purple"><div class="stat-label">${T('statWithUser')}</div><div class="stat-value">${sessWithUser}</div><div class="stat-sub">SESSION / ${sessions.length}</div></div>
-    <div class="stat-card amber"><div class="stat-label">${T('statAvgMsgs')}</div><div class="stat-value">${avgMsgs}</div><div class="stat-sub">${T('statAvgMsgsSub')}</div></div>
-    <div class="stat-card cyan"><div class="stat-label">${T('statUserMsgs')}</div><div class="stat-value">${userMsgs.length}</div><div class="stat-sub">${agentMsgs.length} AGENT</div></div>
+    <div class="stat-card blue"><div class="stat-label">${T('statSessions')}</div><div class="stat-value">${ov.totalSessions}</div><div class="stat-sub">${T('statSessionsSub')}</div></div>
+    <div class="stat-card green"><div class="stat-label">${T('statMsgs')}</div><div class="stat-value">${ov.totalMsgs.toLocaleString()}</div><div class="stat-sub">AGENT + USER</div></div>
+    <div class="stat-card purple"><div class="stat-label">${T('statWithUser')}</div><div class="stat-value">${ov.sessWithUser}</div><div class="stat-sub">SESSION / ${ov.totalSessions}</div></div>
+    <div class="stat-card amber"><div class="stat-label">${T('statAvgMsgs')}</div><div class="stat-value">${ov.avgMsgs}</div><div class="stat-sub">${T('statAvgMsgsSub')}</div></div>
+    <div class="stat-card cyan"><div class="stat-label">${T('statUserMsgs')}</div><div class="stat-value">${ov.userMsgs}</div><div class="stat-sub">${ov.agentMsgs} AGENT</div></div>
 
-    ${statCardTip('--red', 'statNoInteract', noInteractPct + '%', null, null, 'tipNoInteract', null, null)}
-    ${uniqueUsers > 0 ? statCardTip('--indigo', 'statUniqueUsers', uniqueUsers, 'statUniqueUsersSub', null, 'tipUniqueUsers', null, null) : ''}
-    ${avgDurMin !== null ? statCardTip('--amber', 'statAvgDuration', avgDurMin + ' ' + T('minuteUnit'), null, null, 'tipDuration', null, durOutlierCount > 0 ? durOutlierIds : null) : ''}
+    ${statCardTip('--red', 'statNoInteract', ov.noInteractPct + '%', null, null, 'tipNoInteract', null, null)}
+    ${ov.uniqueUsers > 0 ? statCardTip('--indigo', 'statUniqueUsers', ov.uniqueUsers, 'statUniqueUsersSub', null, 'tipUniqueUsers', null, null) : ''}
+    ${ov.avgDurMin !== null ? statCardTip('--amber', 'statAvgDuration', ov.avgDurMin + ' ' + T('minuteUnit'), null, null, 'tipDuration', null, ov.durOutlierCount > 0 ? ov.durOutlierIds : null) : ''}
 
-    ${tsMin ? `<div class="stat-card" style="border-left:3px solid var(--text3)"><div class="stat-label">${T('statDateRange')}</div><div class="stat-value" style="font-size:13px;color:var(--text2);line-height:1.5;">${fmtDate(tsMin)}<br>～ ${fmtDate(tsMax)}</div></div>` : ''}
+    ${ov.tsMin ? `<div class="stat-card" style="border-left:3px solid var(--text3)"><div class="stat-label">${T('statDateRange')}</div><div class="stat-value" style="font-size:13px;color:var(--text2);line-height:1.5;">${fmtDate(ov.tsMin)}<br>～ ${fmtDate(ov.tsMax)}</div></div>` : ''}
   `;
 
       // Msg distribution chart
       const bins = ['1', '2-4', '5-9', '10-19', '20-49', '50-99', '100+'];
-      const counts = [0, 0, 0, 0, 0, 0, 0];
-      sessions.forEach(s => {
-        const n = s.n;
-        if (n === 1) counts[0]++;
-        else if (n <= 4) counts[1]++;
-        else if (n <= 9) counts[2]++;
-        else if (n <= 19) counts[3]++;
-        else if (n <= 49) counts[4]++;
-        else if (n <= 99) counts[5]++;
-        else counts[6]++;
-      });
       destroyChart('msgDistChart');
       chartInstances['msgDistChart'] = new Chart(document.getElementById('msgDistChart'), {
         type: 'bar',
         data: {
           labels: bins,
-          datasets: [{ data: counts, backgroundColor: '#3b82f6cc', borderColor: '#3b82f6', borderWidth: 1, borderRadius: 4 }]
+          datasets: [{ data: statsData.msgDistChart, backgroundColor: '#3b82f6cc', borderColor: '#3b82f6', borderWidth: 1, borderRadius: 4 }]
         },
         options: { ...barOpts(), plugins: { legend: { display: false } } }
       });
@@ -1063,7 +1027,7 @@
         type: 'doughnut',
         data: {
           labels: ['AGENT', 'USER'],
-          datasets: [{ data: [agentMsgs.length, userMsgs.length], backgroundColor: ['#3b82f6', '#22c55e'], borderWidth: 0 }]
+          datasets: [{ data: [ov.agentMsgs, ov.userMsgs], backgroundColor: ['#3b82f6', '#22c55e'], borderWidth: 0 }]
         },
         options: { ...pieOpts() }
       });
@@ -1073,41 +1037,26 @@
     //  LANGUAGE PAGE
     // ════════════════════════════════════════════
     function renderLanguage() {
-      const allMsgs = sessions.flatMap(s => s.msgs);
-      const hasLang = allMsgs.some(m => m.lang);
+      if (!statsData) return;
+      const ls = statsData.language;
       const el = document.getElementById('langContent');
 
-      if (!hasLang) {
+      if (Object.keys(ls.langCount).length === 0) {
         el.innerHTML = `<div class="empty-state"><div class="eicon">🌐</div><p>CSV 中未包含語言欄位</p><small>請在欄位設定中選擇語言欄位後重新載入</small></div>`;
         return;
       }
 
-      // Count languages from user messages
-      const userMsgs = allMsgs.filter(m => isUser(m.spk));
-      const langCount = {};
-      userMsgs.forEach(m => { const l = m.lang || '未知'; langCount[l] = (langCount[l] || 0) + 1; });
-
-      // By session: detect dominant user language
-      const sessionLangs = sessions.map(s => {
-        const umsgs = s.msgs.filter(m => isUser(m.spk));
-        if (!umsgs.length) return '無用戶互動';
-        const lc = {};
-        umsgs.forEach(m => { const l = m.lang || '未知'; lc[l] = (lc[l] || 0) + 1; });
-        return Object.entries(lc).sort((a, b) => b[1] - a[1])[0][0];
-      });
-      const sessLangCount = {};
-      sessionLangs.forEach(l => { sessLangCount[l] = (sessLangCount[l] || 0) + 1; });
-
       const langColors = { '日文': '#3b82f6', '中文': '#22c55e', '英文/其他': '#a855f7', '無用戶互動': '#374151', '未知': '#64748b' };
       const getColor = l => langColors[l] || '#f59e0b';
+      const userMsgsTotal = statsData.overview.userMsgs || 1;
 
       el.innerHTML = `
     <div class="stat-grid">
-      ${Object.entries(langCount).map(([l, c]) => `
+      ${Object.entries(ls.langCount).map(([l, c]) => `
         <div class="stat-card" style="border-left:3px solid ${getColor(l)}">
           <div class="stat-label">用戶訊息・${l}</div>
           <div class="stat-value" style="color:${getColor(l)}">${c}</div>
-          <div class="stat-sub">${((c / userMsgs.length) * 100).toFixed(1)}% 的用戶訊息</div>
+          <div class="stat-sub">${((c / userMsgsTotal) * 100).toFixed(1)}% 的用戶訊息</div>
         </div>`).join('')}
     </div>
 
@@ -1130,7 +1079,6 @@
     </div>
   `;
 
-      // Charts
       const mkPie = (id, data, labels) => {
         destroyChart(id);
         chartInstances[id] = new Chart(document.getElementById(id), {
@@ -1139,13 +1087,14 @@
           options: { ...pieOpts() }
         });
       };
-      const msgEntries = Object.entries(langCount).sort((a, b) => b[1] - a[1]);
+      
+      const msgEntries = Object.entries(ls.langCount).sort((a, b) => b[1] - a[1]);
       mkPie('langMsgChart', msgEntries.map(e => e[1]), msgEntries.map(e => e[0]));
-      const sessEntries = Object.entries(sessLangCount).sort((a, b) => b[1] - a[1]);
+      
+      const sessEntries = Object.entries(ls.sessLangCount).sort((a, b) => b[1] - a[1]);
       mkPie('langSessChart', sessEntries.map(e => e[1]), sessEntries.map(e => e[0]));
 
-      // Bar list
-      const maxSess = Math.max(...sessEntries.map(e => e[1]));
+      const maxSess = Math.max(...sessEntries.map(e => e[1]), 1);
       document.getElementById('langBarList').innerHTML = sessEntries.map(([l, c]) => `
     <div class="bar-item">
       <div class="bar-label">${l}</div>
@@ -1153,27 +1102,9 @@
       <div class="bar-val">${c}</div>
     </div>`).join('');
 
-      // ── Per-language length charts ──
-      const langLenDiv = document.getElementById('langLenSection');
-      if (langLenDiv) langLenDiv.remove();
-      const hasLen = allMsgs.some(m => m.length != null && m.length > 0);
-      if (hasLen) {
-        const langLenMap = {};
-        sessions.forEach(s => {
-          const umsgs = s.msgs.filter(m => isUser(m.spk));
-          if (!umsgs.length) return;
-          const lc = {};
-          umsgs.forEach(m => { const l = m.lang || '未知'; lc[l] = (lc[l] || 0) + 1; });
-          const domLang = Object.entries(lc).sort((a, b) => b[1] - a[1])[0][0];
-          if (!langLenMap[domLang]) langLenMap[domLang] = { u: [], a: [] };
-          s.msgs.forEach(m => {
-            if (!m.length) return;
-            if (isUser(m.spk)) langLenMap[domLang].u.push(m.length);
-            else langLenMap[domLang].a.push(m.length);
-          });
-        });
-        const langs = Object.keys(langLenMap);
-        const avg = arr => arr.length ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+      // Length charts
+      if (Object.keys(ls.langLenUserAvg).length > 0) {
+        const langs = Object.keys(ls.langLenUserAvg);
         const sec = document.createElement('div');
         sec.id = 'langLenSection';
         sec.innerHTML = `
@@ -1191,6 +1122,7 @@
         </div>
       </div>`;
         document.getElementById('langContent').appendChild(sec);
+        
         const mkBar = (id, vals, labels, colors) => {
           destroyChart(id);
           chartInstances[id] = new Chart(document.getElementById(id), {
@@ -1199,8 +1131,8 @@
             options: { ...barOpts(), plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${T('avgChar')} ${ctx.raw}` } } } }
           });
         };
-        mkBar('langLenUserChart', langs.map(l => avg(langLenMap[l].u)), langs, langs.map(getColor));
-        mkBar('langLenAgentChart', langs.map(l => avg(langLenMap[l].a)), langs, langs.map(getColor));
+        mkBar('langLenUserChart', langs.map(l => ls.langLenUserAvg[l]), langs, langs.map(getColor));
+        mkBar('langLenAgentChart', langs.map(l => ls.langLenAgentAvg[l]), langs, langs.map(getColor));
       }
     }
 
